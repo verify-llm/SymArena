@@ -1,0 +1,5 @@
+name: arena
+channels:
+  - conda-forge
+  - defaults
+prefix: /Users/yunchilu/miniconda3/envs/arena
