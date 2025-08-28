@@ -1,5 +1,11 @@
 from typing import List, Any
 import numpy as np
+import z3
+
+
+def print_check(result, expect, dscp=""):
+    icon = "⚠️ " if result == z3.unknown else ("✅" if result == expect else "🚨")
+    print(f" {icon} {dscp} | Result: {result}, Expect: {expect}")
 
 
 def create_name_tensor(shape, prefix):
@@ -12,15 +18,15 @@ def create_name_tensor(shape, prefix):
             for i in range(shape[0])
         ]
     )
-    
 
-def create_tensor(shape, prefix: str, dtype: object, ctx=None):
+
+def create_tensor(shape, prefix: str, dtype: object):
     names = create_name_tensor(shape, prefix)
-    return create_tensors_from_names(names, dtype, ctx)
+    return create_tensors_from_names(names, dtype)
 
 
-def create_tensors_from_names(names, dtype, ctx=None):
-    return np.vectorize(lambda x: dtype(x, ctx=ctx))(names)
+def create_tensors_from_names(names, dtype):
+    return np.vectorize(lambda x: dtype(x))(names)
 
 
 def equalize_tensors(ts: List[np.ndarray]) -> List:
@@ -41,3 +47,12 @@ def unique(l: List[Any]):
         return l[0]
     assert len(set(l)) == 1, f"{set(l)}"
     return l[0]
+
+
+def z3_tactic_check_unsat(constraints) -> bool:
+    g = z3.Goal()
+    g.add(*constraints)
+    simplify = z3.Tactic("solve-eqs")
+    simplified_goal = simplify(g)
+    all_unsat = all(str(subgoal) == "[False]" for subgoal in simplified_goal)
+    return all_unsat
