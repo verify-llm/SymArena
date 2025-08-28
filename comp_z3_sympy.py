@@ -7,49 +7,54 @@ from operators.z3_attn import self_attention
 
 def test_z3_sumsqare():
     print("🚀 z3 Sum Square")
-    
-    x1 = z3.Real("x1")
-    x2 = z3.Real("x2")
 
-    y1 = (x1 + x2) ** 2
-    y2 = x1 ** 2 + x2 ** 2 + 2 * x1 * x2
+    x11 = z3.Real("x11")
+    x12 = z3.Real("x12")
+    x21 = z3.Real("x21")
+    x22 = z3.Real("x22")
 
+    y1 = (x11 + x12) ** 2
+    y2 = x21**2 + x22**2 + 2 * x21 * x22
+
+    input_eq = equalize_tensors([x11, x21]) + equalize_tensors([x12, x22])
     y1_eq_y2 = equalize_tensors([y1, y2])
     y1_neq_y2 = z3.Not(z3.And(y1_eq_y2))
 
     solver = z3.Solver()
+    solver.add(input_eq)
     solver.add(y1_eq_y2)
     result = solver.check()
     print_check(result, z3.sat, "solver")
 
     solver = z3.Solver()
+    solver.add(input_eq)
     solver.add(y1_neq_y2)
     result = solver.check()
     print_check(result, z3.unsat, "solver")
-    
-    tactic_result = z3_tactic_check_unsat([y1_neq_y2])
+
+    tactic_result = z3_tactic_check_unsat(input_eq + [y1_neq_y2])
     print_check(tactic_result, True, "tactic")
-    
+
 
 def test_sympy_sumsquare():
     print("🌿 SymPy Sum Square")
 
-    x1, x2 = sp.symbols('x1 x2', real=True)
+    x1, x2 = sp.symbols("x1 x2", real=True)
 
-    y1 = (x1 + x2)**2
-    y2 = x1**2 + x2**2 + 2*x1*x2
+    y1 = (x1 + x2) ** 2
+    y2 = x1**2 + x2**2 + 2 * x1 * x2
 
     diff = sp.simplify(y1 - y2)
     print_check(diff == 0, True, "simplify(y1 - y2) == 0")
-    
-    
+
+
 def test_z3_squarediv():
     print("🚀 z3 Square Div")
-    
+
     x1 = z3.Real("x1")
     x2 = z3.Real("x2")
 
-    y1 = (x1 ** 2 - x2 ** 2)  / (x1 - x2)
+    y1 = (x1**2 - x2**2) / (x1 - x2)
     y2 = x1 + x2
 
     x1_lt_x2 = x1 > x2
@@ -67,7 +72,7 @@ def test_z3_squarediv():
     solver.add(y1_neq_y2)
     result = solver.check()
     print_check(result, z3.unsat, "solver")
-    
+
     tactic_result = z3_tactic_check_unsat([y1_neq_y2])
     print_check(tactic_result, True, "tactic")
 
@@ -75,9 +80,9 @@ def test_z3_squarediv():
 def test_sympy_squarediv():
     print("🌿 SymPy Square Div")
 
-    x1, x2 = sp.symbols('x1 x2', real=True)
+    x1, x2 = sp.symbols("x1 x2", real=True)
 
-    y1 = (x1 ** 2 - x2 ** 2)  / (x1 - x2)
+    y1 = (x1**2 - x2**2) / (x1 - x2)
     y2 = x1 + x2
 
     diff = sp.simplify(y1 - y2)
@@ -139,10 +144,10 @@ def test_z3_selfattn_tp():
     solver.add(output_neq)
     result = solver.check()
     print_check(result, z3.unsat, "solver")
-    
+
     tactic_result = z3_tactic_check_unsat(input_eq + [output_neq])
     print_check(tactic_result, True, "tactic")
-    
+
 
 if __name__ == "__main__":
     test_z3_sumsqare()
