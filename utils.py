@@ -3,6 +3,28 @@ import numpy as np
 import z3
 
 
+def z3_to_python_number(val: z3.ExprRef) -> int | float:
+    if z3.is_int_value(val):
+        return val.as_long()
+    elif z3.is_rational_value(val):
+        num = val.numerator_as_long()
+        den = val.denominator_as_long()
+        return num / den  # float
+    else:
+        raise TypeError(f"Unsupported Z3 value type: {val}")
+
+
+def concrete_z3(zt, model: z3.ModelRef) -> np.ndarray | float:
+    if type(zt) is z3.ArithRef:
+        return model.evaluate(zt, model_completion=True)
+    flat_result = [
+        z3_to_python_number(model.evaluate(x, model_completion=True))
+        for x in zt.ravel()
+    ]
+    result = np.array(flat_result).reshape(zt.shape)
+    return result
+
+
 def print_check(result, expect, dscp=""):
     icon = "⚠️ " if result == z3.unknown else ("✅" if result == expect else "🚨")
     print(f" {icon} {dscp} | Result: {result}, Expect: {expect}")

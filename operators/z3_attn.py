@@ -1,6 +1,7 @@
 import z3
 import numpy as np
 from typing import List
+import math
 
 Z3Tensor = np.ndarray
 
@@ -20,7 +21,7 @@ def transpose(input: Z3Tensor, dim0: int, dim1: int) -> Z3Tensor:
     return np.transpose(input, axis)
 
 
-def softmax(input: Z3Tensor, dim: int, **kwargs) -> Z3Tensor:
+def softmax(input: Z3Tensor, dim: int = -1, **kwargs) -> Z3Tensor:
     """torch.nn.functional.softmax"""
     e_x = np.e**input
     e_x_sum = np.sum(e_x, axis=dim, keepdims=True)
@@ -223,3 +224,93 @@ def bw_linear(
         g_bias = np.sum(g, axis=tuple(range(g.ndim - 1)))
         grads += [g_bias]
     return grads
+
+
+def standard_attention(Q: Z3Tensor, K: Z3Tensor, V: Z3Tensor, N: int, d: int):
+    """N: seqlen, d: model_dim"""
+    assert Q.shape == K.shape == V.shape == (N, d)
+    S = Q @ K.T
+    P = softmax(S, -1)
+    O = P @ V
+    return O
+
+
+def symbmax_scalar(x, y):
+    return z3.If(x >= y, x, y)
+
+
+def arrmax(arr):
+    it = iter(arr)
+    m = next(it)
+    for e in it:
+        m = symbmax_scalar(m, e)
+    return m
+
+
+def rowmax(X: Z3Tensor):
+    assert X.ndim == 2
+    result = []
+    for row in X:
+        result.append(arrmax(row))
+    result = np.array(result)
+    assert result.shape == (X.shape[0],)
+    return result
+
+
+def rowsum(X: Z3Tensor):
+    assert X.ndim == 2
+    return np.sum(X, axis=1)
+
+
+def vmax(a: Z3Tensor, b: Z3Tensor):
+    """Elementwise Z3 max for 1-D arrays (dtype=object)."""
+    assert a.ndim == b.ndim == 1 and a.shape == b.shape
+    return np.fromiter(
+        (symbmax_scalar(x, y) for x, y in zip(a, b)), dtype=object, count=a.shape[0]
+    )
+
+
+def flash_attention(Q: Z3Tensor, K: Z3Tensor, V: Z3Tensor, N: int, d: int, M: int):
+    """N: seqlen, d: model_dim, M: on-chip SRAM size"""
+    assert Q.shape == K.shape == V.shape == (N, d)
+
+    Bc = math.ceil(M / 4 / d)
+    Br = min(Bc, d)
+    Tr = math.ceil(N / Br)
+    Tc = math.ceil(N / Bc)
+    print(f"    Bc={Bc}, Br={Br}, Tc={Tc}, Tr={Tr}")
+
+    ZERO = z3.IntVal(0)
+    NEG_INF = z3.IntVal(-(10**9))
+    O = np.full((N, d), ZERO, dtype=object)
+    l = np.full((N,), ZERO, dtype=object)
+    m = np.full((N,), NEG_INF)
+
+    e = np.e
+    diag = np.diag
+
+    for j in range(0, Tc):
+        Kj = K[j * Bc : (j + 1) * Bc, :]
+        Vj = V[j * Bc : (j + 1) * Bc, :]
+        for i in range(0, Tr):
+            Qi = Q[i * Br : (i + 1) * Br, :]
+            Oi = O[i * Br : (i + 1) * Br, :]
+            li = l[i * Br : (i + 1) * Br]
+            mi = m[i * Br : (i + 1) * Br]
+            Sij = Qi @ Kj.T
+            mij: Z3Tensor = rowmax(Sij)
+            assert mij.shape == (Br,)
+            Pij = e ** (Sij - mij)
+            assert Pij.shape == (Br, Bc)
+            lij = rowsum(Pij)
+            assert lij.shape == (Br,)
+            mi_new = vmax(mi, mij)
+            assert mi_new.shape == (Br,)
+            li_new = e ** (mi - mi_new) * li + e ** (mij - mi_new) * lij
+            assert li_new.shape == (Br,)
+            O[i * Br : (i + 1) * Br, :] = diag(li_new**-1) * (
+                diag(li) * e ** (mi - mi_new) @ Oi + e ** (mij - mi_new) * Pij @ Vj
+            )
+            l[i * Br : (i + 1) * Br] = li_new
+            m[i * Br : (i + 1) * Br] = mi_new
+    return O

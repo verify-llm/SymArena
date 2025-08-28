@@ -1,7 +1,20 @@
 import z3
 import numpy as np
-from utils import create_tensor, equalize_tensors, print_check, z3_tactic_check_unsat
-from operators.z3_attn import self_attention, bw_softmax, softmax, bw_self_attention
+from utils import (
+    create_tensor,
+    equalize_tensors,
+    print_check,
+    z3_tactic_check_unsat,
+    concrete_z3,
+)
+from operators.z3_attn import (
+    self_attention,
+    bw_softmax,
+    softmax,
+    bw_self_attention,
+    standard_attention,
+    flash_attention,
+)
 from time import time
 
 
@@ -380,7 +393,6 @@ def test_z3_selfattn_bw():
     )
     output_neq = z3.Not(z3.And(output_eq))
 
-    t = time()
     solver = z3.Solver()
     solver.add(input_eq)
     solver.add(output_eq)
@@ -397,13 +409,100 @@ def test_z3_selfattn_bw():
     print_check(tactic_result, True, "tactic")
 
 
+def test_z3_flashattn1():
+    print("🚀 z3 Flash Attention 1")
+    N = 1
+    d = 1
+    M = 4
+
+    Q = create_tensor((N, d), "Q", z3.Real)
+    K = create_tensor((N, d), "K", z3.Real)
+    V = create_tensor((N, d), "V", z3.Real)
+
+    y1 = standard_attention(Q, K, V, N, d)
+    y2 = flash_attention(Q, K, V, N, d, M)
+
+    input_eq = []
+    output_eq = equalize_tensors([y1, y2])
+    output_neq = z3.Not(z3.And(output_eq))
+
+    solver = z3.Solver()
+    solver.check()
+    solver.add(input_eq)
+    solver.add(output_eq)
+    result = solver.check()
+    print_check(result, z3.sat, "solver")
+
+    solver = z3.Solver()
+    solver.check()
+    solver.add(input_eq)
+    solver.add(output_neq)
+    result = solver.check()
+    print_check(result, z3.unsat, "solver")
+    if result == z3.sat:
+        model = solver.model()
+        print("Q", concrete_z3(Q, model))
+        print("K", concrete_z3(K, model))
+        print("V", concrete_z3(V, model))
+        print("y1", concrete_z3(y1, model))
+        print("y2", concrete_z3(y2, model))
+
+    tactic_result = z3_tactic_check_unsat(input_eq + [output_neq])
+    print_check(tactic_result, True, "tactic")
+
+
+# def test_z3_flashattn2():
+#     print("🚀 z3 Flash Attention 2")
+#     N = 1
+#     d = 1
+#     M = 4
+
+#     Q1 = create_tensor((N, d), "Q1", z3.Real)
+#     K1 = create_tensor((N, d), "K1", z3.Real)
+#     V1 = create_tensor((N, d), "V1", z3.Real)
+
+#     Q2 = create_tensor((N, d), "Q2", z3.Real)
+#     K2 = create_tensor((N, d), "K2", z3.Real)
+#     V2 = create_tensor((N, d), "V2", z3.Real)
+
+#     y1 = standard_attention(Q1, K1, V1, N, d)
+#     y2 = flash_attention(Q2, K2, V2, N, d, M)
+
+#     input_eq = (
+#         equalize_tensors([Q1, Q2])
+#         + equalize_tensors([K1, K2])
+#         + equalize_tensors([V1, V2])
+#     )
+#     output_eq = equalize_tensors([y1, y2])
+#     output_neq = z3.Not(z3.And(output_eq))
+
+#     solver = z3.Solver()
+#     solver.check()
+#     solver.add(input_eq)
+#     solver.add(output_eq)
+#     result = solver.check()
+#     print_check(result, z3.sat, "solver")
+
+#     solver = z3.Solver()
+#     solver.check()
+#     solver.add(input_eq)
+#     solver.add(output_neq)
+#     result = solver.check()
+#     print_check(result, z3.unsat, "solver")
+
+#     tactic_result = z3_tactic_check_unsat(input_eq + [output_neq])
+#     print_check(tactic_result, True, "tactic")
+
+
 if __name__ == "__main__":
-    test_z3_sanity()
-    test_z3_linear()
-    test_z3_divsqrt()
-    test_z3_divexp()
-    test_z3_selfattn()
-    test_z3_selfattn_tp()
-    test_z3_softmax()
-    test_z3_softmax_bw()
-    test_z3_selfattn_bw()
+    # test_z3_sanity()
+    # test_z3_linear()
+    # test_z3_divsqrt()
+    # test_z3_divexp()
+    # test_z3_selfattn()
+    # test_z3_selfattn_tp()
+    # test_z3_softmax()
+    # test_z3_softmax_bw()
+    # test_z3_selfattn_bw()
+    test_z3_flashattn1()
+    # test_z3_flashattn2()
