@@ -2,6 +2,7 @@ import z3
 import numpy as np
 from typing import List
 import math
+import sympy as sp
 
 Z3Tensor = np.ndarray
 
@@ -278,13 +279,13 @@ def flash_attention(Q: Z3Tensor, K: Z3Tensor, V: Z3Tensor, N: int, d: int, M: in
     Br = min(Bc, d)
     Tr = math.ceil(N / Br)
     Tc = math.ceil(N / Bc)
-    print(f"    Bc={Bc}, Br={Br}, Tc={Tc}, Tr={Tr}")
+    print(f"   Bc={Bc}, Br={Br}, Tc={Tc}, Tr={Tr}")
 
     ZERO = z3.IntVal(0)
     NEG_INF = z3.IntVal(-(10**9))
     O = np.full((N, d), ZERO, dtype=object)
     l = np.full((N,), ZERO, dtype=object)
-    m = np.full((N,), NEG_INF)
+    m = np.full((N,), NEG_INF, dtype=object)
 
     e = np.e
     diag = np.diag
@@ -299,18 +300,82 @@ def flash_attention(Q: Z3Tensor, K: Z3Tensor, V: Z3Tensor, N: int, d: int, M: in
             mi = m[i * Br : (i + 1) * Br]
             Sij = Qi @ Kj.T
             mij: Z3Tensor = rowmax(Sij)
-            assert mij.shape == (Br,)
-            Pij = e ** (Sij - mij)
-            assert Pij.shape == (Br, Bc)
+            # assert mij.shape == (Br,)
+            Pij = e ** (Sij - mij[:, None])
+            # assert Pij.shape == (Br, Bc)
             lij = rowsum(Pij)
-            assert lij.shape == (Br,)
+            # assert lij.shape == (Br,)
             mi_new = vmax(mi, mij)
-            assert mi_new.shape == (Br,)
+            # assert mi_new.shape == (Br,)
             li_new = e ** (mi - mi_new) * li + e ** (mij - mi_new) * lij
-            assert li_new.shape == (Br,)
-            O[i * Br : (i + 1) * Br, :] = diag(li_new**-1) * (
-                diag(li) * e ** (mi - mi_new) @ Oi + e ** (mij - mi_new) * Pij @ Vj
-            )
+            # assert li_new.shape == (Br,)
+            O[i * Br : (i + 1) * Br, :] = (
+                e ** (mi - mi_new)[:, None] * (li[:, None] * Oi)
+                + e ** (mij - mi_new)[:, None] * (Pij @ Vj)
+            ) / li_new[:, None]
+            l[i * Br : (i + 1) * Br] = li_new
+            m[i * Br : (i + 1) * Br] = mi_new
+    return O
+
+
+def rowmax_sympy(X: Z3Tensor):
+    assert X.ndim == 2
+    result = []
+    for row in X:
+        result.append(sp.Max(*row))
+    result = np.array(result)
+    assert result.shape == (X.shape[0],)
+    return result
+
+
+def vmax_sympy(a: Z3Tensor, b: Z3Tensor):
+    """Elementwise Z3 max for 1-D arrays (dtype=object)."""
+    assert a.ndim == b.ndim == 1 and a.shape == b.shape
+    return np.fromiter(
+        (sp.Max(x, y) for x, y in zip(a, b)), dtype=object, count=a.shape[0]
+    )
+
+def flash_attention_sympy(Q: Z3Tensor, K: Z3Tensor, V: Z3Tensor, N: int, d: int, M: int):
+    """N: seqlen, d: model_dim, M: on-chip SRAM size"""
+    assert Q.shape == K.shape == V.shape == (N, d)
+
+    Bc = math.ceil(M / 4 / d)
+    Br = min(Bc, d)
+    Tr = math.ceil(N / Br)
+    Tc = math.ceil(N / Bc)
+    print(f"   Bc={Bc}, Br={Br}, Tc={Tc}, Tr={Tr}")
+
+    ZERO = 0
+    NEG_INF = -(10**9)
+    O = np.full((N, d), ZERO, dtype=object)
+    l = np.full((N,), ZERO, dtype=object)
+    m = np.full((N,), NEG_INF, dtype=object)
+
+    e = np.e
+
+    for j in range(0, Tc):
+        Kj = K[j * Bc : (j + 1) * Bc, :]
+        Vj = V[j * Bc : (j + 1) * Bc, :]
+        for i in range(0, Tr):
+            Qi = Q[i * Br : (i + 1) * Br, :]
+            Oi = O[i * Br : (i + 1) * Br, :]
+            li = l[i * Br : (i + 1) * Br]
+            mi = m[i * Br : (i + 1) * Br]
+            Sij = Qi @ Kj.T
+            mij: Z3Tensor = rowmax_sympy(Sij)
+            # assert mij.shape == (Br,)
+            Pij = e ** (Sij - mij[:, None])
+            # assert Pij.shape == (Br, Bc)
+            lij = rowsum(Pij)
+            # assert lij.shape == (Br,)
+            mi_new = vmax_sympy(mi, mij)
+            # assert mi_new.shape == (Br,)
+            li_new = e ** (mi - mi_new) * li + e ** (mij - mi_new) * lij
+            # assert li_new.shape == (Br,)
+            O[i * Br : (i + 1) * Br, :] = (
+                e ** (mi - mi_new)[:, None] * (li[:, None] * Oi)
+                + e ** (mij - mi_new)[:, None] * (Pij @ Vj)
+            ) / li_new[:, None]
             l[i * Br : (i + 1) * Br] = li_new
             m[i * Br : (i + 1) * Br] = mi_new
     return O

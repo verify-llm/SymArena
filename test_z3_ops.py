@@ -411,8 +411,8 @@ def test_z3_selfattn_bw():
 
 def test_z3_flashattn1():
     print("🚀 z3 Flash Attention 1")
-    N = 1
-    d = 1
+    N = 2
+    d = 2
     M = 4
 
     Q = create_tensor((N, d), "Q", z3.Real)

@@ -27,7 +27,7 @@ def concrete_z3(zt, model: z3.ModelRef) :
 
 def print_check(result, expect, dscp=""):
     icon = "⚠️ " if result == z3.unknown else ("✅" if result == expect else "🚨")
-    print(f" {icon} {dscp} | Result: {result}, Expect: {expect}")
+    print(f"   {icon} {dscp} | Result: {result}, Expect: {expect}")
 
 
 def create_name_tensor(shape, prefix):

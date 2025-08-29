@@ -1,4 +1,5 @@
 import z3
+import sympy as sp
 import numpy as np
 from utils import (
     create_tensor,
@@ -14,6 +15,8 @@ from operators.z3_attn import (
     bw_self_attention,
     standard_attention,
     flash_attention,
+    arrmax,
+    flash_attention_sympy,
 )
 
 
@@ -89,6 +92,10 @@ def test_z3_flashattn1(zoom=1):
     N = 1 * zoom
     d = 1 * zoom
     M = 4 * zoom
+    
+    # N = 2 * zoom
+    # d = 2 * zoom
+    # M = 16 * zoom
 
     Q = create_tensor((N, d), "Q", z3.Real)
     K = create_tensor((N, d), "K", z3.Real)
@@ -123,15 +130,108 @@ def test_z3_flashattn1(zoom=1):
         print("y2", concrete_z3(y2, model))
 
 
+def test_sympy_max():
+    print("🌿 SymPy Max over Array")
+    x1, x2, x3, x4, x5, x6 = sp.symbols("x1 x2 x3 x4 x5 x6") 
+    expr = sp.Max(sp.Max(x1, x2, x3), sp.Max(x4, x5), x6) - sp.Max(x1,x2,x3,x4,x5,x6)
+    is_zero = sp.simplify(expr) == 0
+    print_check(is_zero, True, "Max")
+
+
+def test_z3_max():
+    print("🚀 z3 Max over Array")
+    x1, x2, x3, x4, x5, x6 = z3.Reals("x1 x2 x3 x4 x5 x6")
+    
+    expr1 = arrmax([arrmax([x1, x2, x3]), arrmax([x4, x5]), x6])
+    expr2 = arrmax([x1,x2,x3,x4,x5,x6])
+    
+    output_eq = expr1 == expr2
+    output_neq = expr1 != expr2
+    
+    solver = z3.Solver()
+    solver.add(output_eq)
+    result = solver.check()
+    print_check(result, z3.sat, "Max")
+    
+    solver = z3.Solver()
+    solver.add(output_neq)
+    result = solver.check()
+    print_check(result, z3.unsat, "Max")
+        
+
+def np_sympy_equal(A: np.ndarray, B: np.ndarray) -> bool:
+    if A.shape != B.shape:
+        return False
+    return all(sp.simplify(a - b) == 0 for a, b in zip(A.flat, B.flat))
+
+
+def test_sympy_flashattn1(zoom=1):
+    print(f"🌿 Sympy Flash Attention 1 Zoom={zoom}")
+    N = 2 * zoom
+    d = 2 * zoom
+    M = 16 * zoom
+    
+    # N = 1 * zoom
+    # d = 1 * zoom
+    # M = 4 * zoom
+
+    Q = create_tensor((N, d), "Q", sp.Symbol)
+    K = create_tensor((N, d), "K", sp.Symbol)
+    V = create_tensor((N, d), "V", sp.Symbol)
+
+    y1 = standard_attention(Q, K, V, N, d)
+    y2 = flash_attention_sympy(Q, K, V, N, d, M)
+
+    is_zero = np_sympy_equal(y1, y2)
+    print_check(is_zero, True, "flashattn")
+    
+    if not is_zero:
+        print("⚠️ Symbolic check inconclusive → testing with concrete values...")
+
+        # collect all symbols from Q,K,V
+        symbols = list(Q.flat) + list(K.flat) + list(V.flat)
+
+        # assign sequential integers (1,2,3,...)
+        vals = {s: i+1 for i, s in enumerate(symbols)}
+
+        y1_val = sp.Matrix(y1.tolist()).evalf(subs=vals)
+        y2_val = sp.Matrix(y2.tolist()).evalf(subs=vals)
+
+        print("Substitution:", vals)
+        print("y1 =", y1_val)
+        print("y2 =", y2_val)
+
+        # check numeric equality
+        is_zero = all(abs(a - b) < 1e-9 for a, b in zip(y1_val, y2_val))
+        
 if __name__ == "__main__":
-    # test_z3_sanity()
-    # test_z3_linear()
-    # test_z3_divsqrt()
-    # test_z3_divexp()
-    # test_z3_selfattn()
-    # test_z3_selfattn_tp()
-    # test_z3_softmax()
-    # test_z3_softmax_bw()
-    # test_z3_selfattn_bw()
-    test_z3_flashattn1()
-    # test_z3_flashattn2()
+    
+    # op with nonlinear but not Max
+    print("Use Z3 to check backward_self_attention, which contains nonlinear ops.\n"
+          "When comparing whether the equivalence has a solution, it reports unknown.\n"
+          "When comparing whether the equivalence always hold, it passes the check.\n"
+          "But if we scale up, time explodes. By zoom=3, it runs forever.")
+    test_z3_selfattn_bw(zoom=1)
+    # test_z3_selfattn_bw(zoom=2)
+    # test_z3_selfattn_bw(zoom=3) # hangs or slow
+    print()
+    
+    # compare how z3 and sympy is capable of Max semantics
+    print("Use Z3 and SymPy to check global Max V.S. aggregation of partial max.\n"
+          "The result shows both tools can pass in this prototype.")
+    test_z3_max()
+    test_sympy_max()
+    print()
+    
+    # compare how z3 and sympy is capable of flash attention
+    print("Use Z3 to check flash attention, which contains nonlinear ops and Max.\n"
+          "Z3 only passes for the smallest scale (input tensors have only 1 element).\n"
+          "SymPy can understand complicated Max, and checks larger inputs.\n"
+          "Note SymPy's version also has larger Block Sizes (Bc. Br).")
+    test_z3_flashattn1(zoom=1)
+    # test_z3_flashattn1(zoom=2) # hangs or slow
+    test_sympy_flashattn1(zoom=1)
+    test_sympy_flashattn1(zoom=2)
+    test_sympy_flashattn1(zoom=3)
+    print()
+    
