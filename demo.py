@@ -212,7 +212,7 @@ if __name__ == "__main__":
           "When comparing whether the equivalence always hold, it passes the check.\n"
           "But if we scale up, time explodes. By zoom=3, it runs forever.")
     test_z3_selfattn_bw(zoom=1)
-    # test_z3_selfattn_bw(zoom=2)
+    test_z3_selfattn_bw(zoom=2)
     # test_z3_selfattn_bw(zoom=3) # hangs or slow
     print()
     
