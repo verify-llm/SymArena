@@ -7,6 +7,10 @@ from utils import (
     print_check,
     z3_tactic_check_unsat,
     concrete_z3,
+    sp_tensor_view,
+    sp_build_subs_from_pairs,
+    sp_apply_subs_tensor,
+    sp_tensors_equal_symbolic,
 )
 from operators.z3_attn import (
     self_attention,
@@ -204,63 +208,6 @@ def test_sympy_flashattn1(zoom=1):
         # check numeric equality
         is_zero = all(abs(a - b) < 1e-9 for a, b in zip(y1_val, y2_val))
         
-def sp_tensor_view(T):
-    """Return (kind, flat_list, shape, rebuild) for Matrix/Array/np(object)/scalar."""
-    if isinstance(T, sp.MatrixBase):
-        shape = (T.rows, T.cols)
-        flat = [T[i, j] for i in range(T.rows) for j in range(T.cols)]
-        def rebuild(vals): return sp.Matrix(shape[0], shape[1], vals)
-        return "matrix", flat, shape, rebuild
-    if isinstance(T, sp.NDimArray):
-        shape = T.shape
-        flat = list(T)
-        def rebuild(vals): return sp.Array(vals).reshape(shape)
-        return "array", flat, shape, rebuild
-    if isinstance(T, np.ndarray):
-        shape = T.shape
-        flat = list(T.flat)
-        def rebuild(vals):
-            out = np.empty(shape, dtype=object)
-            out.flat[:] = vals
-            return out
-        return "numpy", flat, shape, rebuild
-    # scalar
-    def rebuild(vals): return vals[0]
-    return "scalar", [T], (), rebuild
-
-def sp_build_subs_from_pairs(pairs):
-    """
-    Pairs: list[(A, B)] with same shape; returns {sym_in_B: sym_in_A}.
-    This encodes 'B ≡ A' as a substitution B→A.
-    """
-    subs = {}
-    for A, B in pairs:
-        _, flatA, _, _ = sp_tensor_view(A)
-        _, flatB, _, _ = sp_tensor_view(B)
-        assert len(flatA) == len(flatB)
-        for a, b in zip(flatA, flatB):
-            subs[b] = a
-    return subs
-
-def sp_apply_subs_tensor(T, subs):
-    kind, flat, shape, rebuild = sp_tensor_view(T)
-    flat2 = [ (e.xreplace(subs) if isinstance(e, sp.Basic) else e) for e in flat ]
-    return rebuild(flat2)
-
-def sp_tensors_equal_symbolic(A, B):
-    """Strict: elementwise sp.simplify(a-b) == 0."""
-    _, flatA, _, _ = sp_tensor_view(A)
-    _, flatB, _, _ = sp_tensor_view(B)
-    if len(flatA) != len(flatB): return False
-    for a, b in zip(flatA, flatB):
-        if isinstance(a, sp.Basic) or isinstance(b, sp.Basic):
-            if sp.simplify(a - b) != 0:
-                return False
-        else:
-            if a != b:
-                return False
-    return True
-
 
 
 def test_sympy_selfattn_bw(zoom=1):
