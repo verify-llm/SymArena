@@ -28,3 +28,15 @@ def test_col_linear(zoom=1):
 
 if __name__ == "__main__":
     test_col_linear(zoom=1000000)
+    """
+    SymPy has MatrixSymbol and Matrix sorts.
+    
+    MatrixSymbol represent matrix as one symbol.
+    MatrixSymbol can scale without side effect (see zoom=1xxxx).
+    
+    Matrix is concrete matrix with elements to be number or symbolics.
+    So its scalability is almost the same as e.g. np.ndarray with Symbol elements.
+    
+    MatrixSymbol can only represent 2-D matrix, and support basic matrix operations.
+    These factors provides insufficient support for LLM representations.
+    """
