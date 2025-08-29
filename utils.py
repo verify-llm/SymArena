@@ -3,7 +3,7 @@ import numpy as np
 import z3
 
 
-def z3_to_python_number(val: z3.ExprRef) -> int | float:
+def z3_to_python_number(val: z3.ExprRef):
     if z3.is_int_value(val):
         return val.as_long()
     elif z3.is_rational_value(val):
@@ -14,7 +14,7 @@ def z3_to_python_number(val: z3.ExprRef) -> int | float:
         raise TypeError(f"Unsupported Z3 value type: {val}")
 
 
-def concrete_z3(zt, model: z3.ModelRef) -> np.ndarray | float:
+def concrete_z3(zt, model: z3.ModelRef) :
     if type(zt) is z3.ArithRef:
         return model.evaluate(zt, model_completion=True)
     flat_result = [

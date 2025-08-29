@@ -139,6 +139,14 @@ def test_sympy_divsqrt():
 
     is_zero = sp.simplify(expr_sub) == 0
     print_check(is_zero, True, "1/sqrt(x1) == 1/sqrt(x2) given x1==x2")
+    
+
+def test_sympy_max():
+    print("🌿 SymPy Max")
+    x1, x2, x3, x4 = sp.symbols("x1 x2 x3 x4", positive=True) 
+    expr = sp.Max(sp.Max(x1, x2), sp.Max(x3, x4)) - sp.Max(x1,x2,x3,x4)
+    is_zero = sp.simplify(expr) == 0
+    print_check(is_zero, True, "Max")
 
 
 if __name__ == "__main__":
@@ -148,3 +156,4 @@ if __name__ == "__main__":
     test_sympy_abscomp_known()
     test_sympy_log()
     test_sympy_divsqrt()
+    test_sympy_max()

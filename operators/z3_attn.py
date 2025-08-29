@@ -6,7 +6,7 @@ import math
 Z3Tensor = np.ndarray
 
 
-def linear(input: Z3Tensor, weight: Z3Tensor, bias: Z3Tensor | None = None) -> Z3Tensor:
+def linear(input: Z3Tensor, weight: Z3Tensor, bias = None) -> Z3Tensor:
     """torch.nn.functional.linear"""
     result = input @ weight.T
     if bias is not None:
@@ -213,7 +213,7 @@ def bw_matmul(g: Z3Tensor, X: Z3Tensor, W: Z3Tensor) -> List[Z3Tensor]:
 
 
 def bw_linear(
-    g: Z3Tensor, input: Z3Tensor, weight: Z3Tensor, bias: Z3Tensor | None = None
+    g: Z3Tensor, input: Z3Tensor, weight: Z3Tensor, bias = None
 ) -> List[Z3Tensor]:
     """torch.nn.functional.linear"""
     g_input, g_weight = bw_matmul(g, input, weight.T)
