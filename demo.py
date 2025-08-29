@@ -204,8 +204,128 @@ def test_sympy_flashattn1(zoom=1):
         # check numeric equality
         is_zero = all(abs(a - b) < 1e-9 for a, b in zip(y1_val, y2_val))
         
-if __name__ == "__main__":
+def sp_tensor_view(T):
+    """Return (kind, flat_list, shape, rebuild) for Matrix/Array/np(object)/scalar."""
+    if isinstance(T, sp.MatrixBase):
+        shape = (T.rows, T.cols)
+        flat = [T[i, j] for i in range(T.rows) for j in range(T.cols)]
+        def rebuild(vals): return sp.Matrix(shape[0], shape[1], vals)
+        return "matrix", flat, shape, rebuild
+    if isinstance(T, sp.NDimArray):
+        shape = T.shape
+        flat = list(T)
+        def rebuild(vals): return sp.Array(vals).reshape(shape)
+        return "array", flat, shape, rebuild
+    if isinstance(T, np.ndarray):
+        shape = T.shape
+        flat = list(T.flat)
+        def rebuild(vals):
+            out = np.empty(shape, dtype=object)
+            out.flat[:] = vals
+            return out
+        return "numpy", flat, shape, rebuild
+    # scalar
+    def rebuild(vals): return vals[0]
+    return "scalar", [T], (), rebuild
+
+def sp_build_subs_from_pairs(pairs):
+    """
+    Pairs: list[(A, B)] with same shape; returns {sym_in_B: sym_in_A}.
+    This encodes 'B ≡ A' as a substitution B→A.
+    """
+    subs = {}
+    for A, B in pairs:
+        _, flatA, _, _ = sp_tensor_view(A)
+        _, flatB, _, _ = sp_tensor_view(B)
+        assert len(flatA) == len(flatB)
+        for a, b in zip(flatA, flatB):
+            subs[b] = a
+    return subs
+
+def sp_apply_subs_tensor(T, subs):
+    kind, flat, shape, rebuild = sp_tensor_view(T)
+    flat2 = [ (e.xreplace(subs) if isinstance(e, sp.Basic) else e) for e in flat ]
+    return rebuild(flat2)
+
+def sp_tensors_equal_symbolic(A, B):
+    """Strict: elementwise sp.simplify(a-b) == 0."""
+    _, flatA, _, _ = sp_tensor_view(A)
+    _, flatB, _, _ = sp_tensor_view(B)
+    if len(flatA) != len(flatB): return False
+    for a, b in zip(flatA, flatB):
+        if isinstance(a, sp.Basic) or isinstance(b, sp.Basic):
+            if sp.simplify(a - b) != 0:
+                return False
+        else:
+            if a != b:
+                return False
+    return True
+
+
+
+def test_sympy_selfattn_bw(zoom=1):
+    print(f"🌿 z3 Self_attention Backward Zoom={zoom}")
+
+    """
+    # L N E, (h d 3) E -> L N (h d 3)
+    qkv = linear(query, qkv_proj, qkv_bias)
+    # require: N = h * d
+    """
+
+    L = E = N = h = d = 2 * zoom
+    query_shape = (L, N, E)
+    qkv_proj_shape = (3 * h * d, E)
+    qkv_bias_shape = (3 * h * d,)
+    out_proj_shape = (E, h * d)
+
+    query1 = create_tensor(query_shape, "query1", sp.Symbol)
+    qkv_proj1 = create_tensor(qkv_proj_shape, "qkv_proj1", sp.Symbol)
+    qkv_bias1 = create_tensor(qkv_bias_shape, "qkv_bias1", sp.Symbol)
+    out_proj1 = create_tensor(out_proj_shape, "out_proj1", sp.Symbol)
+    g1 = create_tensor(query_shape, "g1", sp.Symbol)
+
+    query2 = create_tensor(query_shape, "query2", sp.Symbol)
+    qkv_proj2 = create_tensor(qkv_proj_shape, "qkv_proj2", sp.Symbol)
+    qkv_bias2 = create_tensor(qkv_bias_shape, "qkv_bias2", sp.Symbol)
+    out_proj2 = create_tensor(out_proj_shape, "out_proj2", sp.Symbol)
+    g2 = create_tensor(query_shape, "g2", sp.Symbol)
+
+    scale = 1
+    mask = False
+    # g_query, g_qkv_proj, g_qkv_bias, g_out_proj
+    y11, y12, y13, y14 = bw_self_attention(
+        g1, query1, qkv_proj1, qkv_bias1, out_proj1, h, scale, mask
+    )
+    y21, y22, y23, y24 = bw_self_attention(
+        g2, query2, qkv_proj2, qkv_bias2, out_proj2, h, scale, mask
+    )
+
+    # --- SymPy-equivalent of 'input_eq' via substitution map (second → first)
+    pairs = [
+        (g1,        g2),
+        (query1,    query2),
+        (qkv_proj1, qkv_proj2),
+        (qkv_bias1, qkv_bias2),
+        (out_proj1, out_proj2),
+    ]
+    subs = sp_build_subs_from_pairs(pairs)
+
+    # Apply constraints by substitution, then compare outputs
+    y21_s = sp_apply_subs_tensor(y21, subs)
+    y22_s = sp_apply_subs_tensor(y22, subs)
+    y23_s = sp_apply_subs_tensor(y23, subs)
+    y24_s = sp_apply_subs_tensor(y24, subs)
+
+    ok1 = sp_tensors_equal_symbolic(y11, y21_s)
+    ok2 = sp_tensors_equal_symbolic(y12, y22_s)
+    ok3 = sp_tensors_equal_symbolic(y13, y23_s)
+    ok4 = sp_tensors_equal_symbolic(y14, y24_s)
+
+    all_ok = ok1 and ok2 and ok3 and ok4
+    print_check(all_ok, True, "bw_self_attention equivalence (SymPy)")
+
     
+if __name__ == "__main__":
     # op with nonlinear but not Max
     print("Use Z3 to check backward_self_attention, which contains nonlinear ops.\n"
           "When comparing whether the equivalence has a solution, it reports unknown.\n"
@@ -214,6 +334,14 @@ if __name__ == "__main__":
     test_z3_selfattn_bw(zoom=1)
     test_z3_selfattn_bw(zoom=2)
     # test_z3_selfattn_bw(zoom=3) # hangs or slow
+    print()
+    
+    # op with nonlinear but not Max
+    print("Use SymPy to check backward_self_attention, which contains nonlinear ops.\n"
+          "SymPy's run time is similar to Z3. zoom=1 finishes fast; zoom=2 takes much longer time.")
+    test_sympy_selfattn_bw(zoom=1)
+    test_sympy_selfattn_bw(zoom=2)
+    # test_sympy_selfattn_bw(zoom=3) # hangs or slow
     print()
     
     # compare how z3 and sympy is capable of Max semantics
