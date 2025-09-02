@@ -151,7 +151,6 @@ def test_z3_selfattn():
     """
     # L N E, (h d 3) E -> L N (h d 3)
     qkv = linear(query, qkv_proj, qkv_bias)
-    # require: N = h * d
     """
 
     L = E = N = h = d = 2
@@ -205,7 +204,6 @@ def test_z3_selfattn_tp():
     print("🚀 z3 Self_attention with tensor partitioning")
 
     """
-    # require: N = h * d
     @nnscaler.register_op('L^ N E^, (h+ d^ 3) E^, (h+ d^ 3), E^ (h+ d^) -> L^ N E^', name='self_attention')
     y1 = self_attention(query1, qkv_proj1, qkv_bias1, out_proj1, h, scale, mask)
     """
@@ -346,7 +344,6 @@ def test_z3_selfattn_bw():
     """
     # L N E, (h d 3) E -> L N (h d 3)
     qkv = linear(query, qkv_proj, qkv_bias)
-    # require: N = h * d
     """
 
     L = E = N = h = d = 2
